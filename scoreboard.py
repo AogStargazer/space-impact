@@ -19,7 +19,6 @@ class Scoreboard:
         # Font "Pixeled" created by OmegaPC777.
         self.font = pygame.font.Font("pixeled.ttf", int(self.settings.screen_height*0.04))
         # Prepate the initial score image.
-        self.prep_level()
         self.prep_score()
         self.prep_high_score()
         self.prep_hearts()
@@ -47,15 +46,14 @@ class Scoreboard:
         # Display the score at the top right of the screen.
         self.high_score_image = self.font.render(self.new_high_score, True, self.text_color)
 
+    # Level functionality removed
     def prep_level(self):
-        """Turn the level into a rendered image"""
-        level_str = f" LEVEL {str(self.stats.level)}"
-        self.level_image = self.font.render(level_str, True, self.text_color)
+        """Method kept for compatibility but no longer used"""
+        pass
 
     def show_score(self):
         """Draw score to the screen."""
         self.screen.blit(self.score_image, (self.settings.screen_width*0.82, self.settings.screen_height*0.001))
-        self.screen.blit(self.level_image, (self.settings.screen_width*0.812, self.settings.screen_height*0.06))
         self.screen.blit(self.high_score_image, (self.settings.screen_width*0.25, self.settings.screen_height*0.001))
         self.hearts.draw(self.screen)
 

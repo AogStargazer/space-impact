@@ -12,10 +12,13 @@ from bullet import Bullet
 from alien import Alien
 from alien_2 import Alien2
 from alien_3 import Alien3
+from space import Starfield
 from game_stats import GameStats
 from time import *
 from button import Button
 from scoreboard import Scoreboard
+from boss import Boss
+from boss_bullet import BossBullet
 
 clock = pygame.time.Clock()
 
@@ -35,6 +38,14 @@ class SpaceImpact:
         self.ship = Ship(self)
         self.bullets = pygame.sprite.Group()
         self.aliens = pygame.sprite.Group()
+        
+        # Boss related attributes
+        self.boss = None
+        self.boss_bullets = pygame.sprite.Group()
+        self.boss_active = False
+        # Initialize with current time to ensure first boss spawns after 2 minutes from game start
+        self.last_boss_death_time = pygame.time.get_ticks()
+        self.boss_respawn_delay = 120000  # 2 minutes in milliseconds
 
         self._create_fleet_1()
         self._create_fleet_2()
@@ -43,6 +54,13 @@ class SpaceImpact:
         # Set the background image
         self.bg_image = self.settings.bg_image
         self.imageship = self.ship.image
+        
+        # Initialize starfield
+        self.starfield = Starfield(300)
+        
+        # AI auto-fire settings
+        self.ai_fire_cooldown = 100  # milliseconds
+        self.last_ai_shot = pygame.time.get_ticks()
 
         # Instance to store game statistic.
         self.stats = GameStats(self)
@@ -61,10 +79,32 @@ class SpaceImpact:
             self._check_events()
 
             if self.stats.game_active:
-                self.ship.update()
+                # Check if it's time to spawn a boss
+                # Boss spawns 2 minutes after game start or 2 minutes after previous boss death
+                current_time = pygame.time.get_ticks()
+                if not self.boss_active and current_time - self.last_boss_death_time >= self.boss_respawn_delay:
+                    self._spawn_boss()
+                
+                # Update game elements
+                # Pass the boss instance to the ship's AI if boss is active
+                self.ship.update_ai(
+                    self.aliens, 
+                    self.boss_bullets if self.boss_active else None,
+                    self.boss if self.boss_active else None
+                )
                 self.bullets.update()
                 self._update_aliens()
                 self._update_bullets()
+                
+                # Update boss if active
+                if self.boss_active and self.boss:
+                    self._update_boss()
+                    self._update_boss_bullets()
+                
+                # AI auto-fire logic
+                if current_time - self.last_ai_shot > self.ai_fire_cooldown:
+                    self._fire_bullet()
+                    self.last_ai_shot = current_time
 
             # Redraw the screen during each pass through the loop.
             self._update_screen()
@@ -74,10 +114,6 @@ class SpaceImpact:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 sys.exit()
-            elif event.type == pygame.KEYDOWN:
-                self._check_keydown_events(event)
-            elif event.type == pygame.KEYUP:
-                self._check_keyup_events(event)
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 mouse_pos = pygame.mouse.get_pos()
                 self._check_play_button(mouse_pos)
@@ -116,14 +152,19 @@ class SpaceImpact:
             self.settings.initialize_dynamic_settings()
             self.stats.game_active = True
             self.scoreboard.prep_score()
-            self.scoreboard.prep_level()
             self.scoreboard.prep_hearts()
 
             # Hide the mouse cursor.
             pygame.mouse.set_visible(False)
-        # Get rid of any remaining aliens and bullets.
+            
+            # Get rid of any remaining aliens, bullets, and boss.
             self.aliens.empty()
             self.bullets.empty()
+            self.boss_bullets.empty()
+            self.boss_active = False
+            self.boss = None
+            self.last_boss_death_time = pygame.time.get_ticks()
+            
             self.ship.center_ship()
             self._create_fleet_1()
             self._create_fleet_2()
@@ -136,28 +177,90 @@ class SpaceImpact:
 
     def _create_fleet_1(self):
         """Create the fleet of aliens."""
-        # Make an alien.
-        alien = Alien(self, self.settings)
-        self.aliens.add(alien)
-        alien = Alien(self, self.settings)
-        self.aliens.add(alien)
-        alien = Alien(self, self.settings)
-        self.aliens.add(alien)
+        # Make multiple aliens (increased spawn rate)
+        for _ in range(5):  # Increased from 3 to 5
+            alien = Alien(self, self.settings)
+            self.aliens.add(alien)
 
     def _create_fleet_2(self):
         """Create the fleet of aliens."""
-        # Make an alien.
-        alien_2 = Alien2(self, self.settings)
-        self.aliens.add(alien_2)
+        # Make multiple aliens (increased spawn rate)
+        for _ in range(2):  # Increased from 1 to 2
+            alien_2 = Alien2(self, self.settings)
+            self.aliens.add(alien_2)
 
     def _create_fleet_3(self):
         """Create the fleet of aliens."""
-        # Make an alien.
-        alien_3 = Alien3(self, self.settings)
-        self.aliens.add(alien_3)
+        # Make multiple aliens (increased spawn rate)
+        for _ in range(2):  # Increased from 1 to 2
+            alien_3 = Alien3(self, self.settings)
+            self.aliens.add(alien_3)
+            
+    def _spawn_boss(self):
+        """Create a new boss instance."""
+        self.boss = Boss(self)
+        self.boss_active = True
+        
+        # Reduce the number of regular aliens when boss appears to maintain game balance
+        # Remove half of the current aliens
+        aliens_to_remove = list(self.aliens)[:len(self.aliens)//2]
+        for alien in aliens_to_remove:
+            self.aliens.remove(alien)
+        
+    def _fire_boss_bullet(self, boss):
+        """Create a new boss bullet and add it to the boss_bullets group."""
+        # Only fire bullets if the boss is in combat phase
+        if boss.phase == 'combat':
+            new_bullet = BossBullet(self, boss)
+            self.boss_bullets.add(new_bullet)
+        
+    def _update_boss(self):
+        """Update the boss position and check for collisions."""
+        if self.boss_active and self.boss:
+            # Update boss position and animation
+            self.boss.update()
+            
+            # Check for bullet collisions with boss
+            collisions = pygame.sprite.spritecollide(self.boss, self.bullets, True)
+            if collisions:
+                for _ in collisions:
+                    # If boss is hit, reduce health
+                    if self.boss.hit():
+                        # Boss is destroyed
+                        self.boss_active = False
+                        # Record time of boss death to start 2-minute respawn countdown
+                        self.last_boss_death_time = pygame.time.get_ticks()
+                        # Award extra points for defeating the boss
+                        self.stats.score += self.settings.alien_points * 10
+                        self.scoreboard.prep_score()
+                        self.scoreboard.check_high_score()
+                        self.boss = None
+                        
+                        # Spawn more aliens when boss is defeated to maintain game balance
+                        self._create_fleet_1()
+                        
+    def _update_boss_bullets(self):
+        """Update boss bullets position and check for collisions."""
+        self.boss_bullets.update()
+        
+        # Check for collisions with the ship
+        if pygame.sprite.spritecollideany(self.ship, self.boss_bullets):
+            self._ship_hit()
+            
+        # Remove bullets that have gone off screen
+        for bullet in self.boss_bullets.copy():
+            if bullet.rect.right <= 0:
+                self.boss_bullets.remove(bullet)
+                
+        # Limit the number of boss bullets on screen to prevent overwhelming the player
+        if len(self.boss_bullets) > 10:
+            # Remove the oldest bullets
+            oldest_bullets = list(self.boss_bullets)[:len(self.boss_bullets) - 10]
+            for bullet in oldest_bullets:
+                self.boss_bullets.remove(bullet)
 
     def _ship_hit(self):
-        """Respong to the ship being hit by an alien."""
+        """Respond to the ship being hit by an alien or boss bullet."""
 
         if self.stats.ships_left > 0:
             # Lower ships left.
@@ -167,7 +270,14 @@ class SpaceImpact:
             # Get rid of any remaining aliens and bullets.
             self.aliens.empty()
             self.bullets.empty()
+            self.boss_bullets.empty()
 
+            # Reset boss state if active
+            if self.boss_active:
+                self.boss_active = False
+                self.boss = None
+                # Don't reset the boss timer to allow it to spawn again after delay
+            
             # Create a new fleet and center the ship.
             self.ship.center_ship()
             self._create_fleet_1()
@@ -206,10 +316,7 @@ class SpaceImpact:
                 self.bullets.remove(bullet)
 
         if not self.aliens:
-            self.settings.increase_speed()
-            self.stats.level += 1
-            self.scoreboard.prep_level()
-
+            # Create new fleets when all aliens are destroyed
             self._create_fleet_1()
             self._create_fleet_2()
             self._create_fleet_3()
@@ -217,11 +324,26 @@ class SpaceImpact:
     def _update_screen(self):
         """Update images on the screen and flip to the new screen."""
 
-        self.screen.blit(pygame.transform.scale
-                         (self.bg_image, [self.settings.screen_width, self.settings.screen_height]), (0, 0))
+        # Fill with white background
+        self.screen.fill((255, 255, 255))
+        
+        # Update and draw starfield
+        self.starfield.update()
+        self.starfield.draw(self.screen)
         self.ship.blitme()
+        
+        # Draw bullets
         for bullet in self.bullets.sprites():
             bullet.draw_bullet()
+            
+        # Draw boss bullets if boss is active
+        if self.boss_active:
+            for boss_bullet in self.boss_bullets.sprites():
+                boss_bullet.draw_bullet()
+            
+            # Draw the boss
+            if self.boss:
+                self.boss.draw()
 
         self.aliens.draw(self.screen)
 

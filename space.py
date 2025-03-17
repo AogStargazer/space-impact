@@ -11,9 +11,8 @@ pygame.display.set_caption("Space Travel Starfield")
 
 # Colors
 BLACK = (0, 0, 0)
-COLORS = [(255, 255, 255), (255, 255, 255), (255, 255, 255), (255, 255, 255),  # More white stars
-          (255, 0, 0), (0, 255, 0), (0, 0, 255), (128, 0, 128),
-          (255, 255, 0), (255, 165, 0), (75, 0, 130), (173, 216, 230)]
+WHITE = (255, 255, 255)
+COLORS = [(0, 0, 0)]  # Monochrome black stars
 
 class Star:
     def __init__(self, x=None, y=None):
@@ -63,7 +62,7 @@ def main():
     running = True
     
     while running:
-        screen.fill(BLACK)
+        screen.fill(WHITE)
         
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
