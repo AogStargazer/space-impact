@@ -19,6 +19,8 @@ from button import Button
 from scoreboard import Scoreboard
 from boss import Boss
 from boss_bullet import BossBullet
+from powerup import Powerup
+from ai_projectiles import LaserBullet, SpreadBullet, create_spread_shot
 
 clock = pygame.time.Clock()
 
@@ -38,6 +40,10 @@ class SpaceImpact:
         self.ship = Ship(self)
         self.bullets = pygame.sprite.Group()
         self.aliens = pygame.sprite.Group()
+        self.powerups = pygame.sprite.Group()
+        
+        # Powerup spawn timer
+        self.last_powerup_spawn_time = pygame.time.get_ticks()
         
         # Boss related attributes
         self.boss = None
@@ -85,16 +91,24 @@ class SpaceImpact:
                 if not self.boss_active and current_time - self.last_boss_death_time >= self.boss_respawn_delay:
                     self._spawn_boss()
                 
+                # Check if it's time to spawn a powerup (every 10 seconds)
+                current_time = pygame.time.get_ticks()
+                if current_time - self.last_powerup_spawn_time >= 10000:  # 10 seconds
+                    self._spawn_powerup()
+                    self.last_powerup_spawn_time = current_time
+                
                 # Update game elements
                 # Pass the boss instance to the ship's AI if boss is active
                 self.ship.update_ai(
                     self.aliens, 
                     self.boss_bullets if self.boss_active else None,
-                    self.boss if self.boss_active else None
+                    self.boss if self.boss_active else None,
+                    self.powerups
                 )
                 self.bullets.update()
                 self._update_aliens()
                 self._update_bullets()
+                self._update_powerups()
                 
                 # Update boss if active
                 if self.boss_active and self.boss:
@@ -144,36 +158,154 @@ class SpaceImpact:
         elif event.key == pygame.K_DOWN:
             self.ship.moving_down = False
 
+    def _spawn_powerup(self):
+        """Spawn a random powerup on the screen."""
+        import random
+        
+        # Define powerup types
+        powerup_types = ['red', 'green', 'orange', 'yellow']
+        
+        # Choose a random powerup type
+        powerup_type = random.choice(powerup_types)
+        
+        # Generate random y position (within screen bounds)
+        y_position = random.randint(50, self.settings.screen_height - 50)
+        
+        # Create powerup at the right edge of the screen
+        new_powerup = Powerup(self, powerup_type, self.settings.screen_width, y_position)
+        self.powerups.add(new_powerup)
+    
+    def _apply_powerup_effect(self, powerup_type):
+        """Apply the effect of the collected powerup."""
+        if powerup_type == 'red':
+            # Health powerup - increase ship lives
+            self.stats.ships_left += 1
+            self.scoreboard.prep_hearts()
+        elif powerup_type == 'green':
+            # Laser projectile powerup
+            self.stats.green_powerups += 1
+            self.scoreboard.prep_powerup_counts()
+        elif powerup_type == 'orange':
+            # Spread projectile powerup
+            self.stats.orange_powerups += 1
+            self.scoreboard.prep_powerup_counts()
+        elif powerup_type == 'yellow':
+            # Invulnerability powerup: simply collect and increment counter.
+            self.stats.yellow_powerups += 1
+            self.scoreboard.prep_powerup_counts()
+    
+    def _update_powerups(self):
+        """Update powerups position and check for collisions."""
+        # Update powerup positions
+        self.powerups.update()
+        
+        # Check for collisions between bullets and powerups
+        collisions = pygame.sprite.groupcollide(self.bullets, self.powerups, True, True)
+        
+        if collisions:
+            for powerups in collisions.values():
+                for powerup in powerups:
+                    # Apply the effect based on powerup type
+                    self._apply_powerup_effect(powerup.type)
+        
+        # Check for ship-powerup collisions
+        powerup_hit = pygame.sprite.spritecollideany(self.ship, self.powerups)
+        if powerup_hit:
+            self._apply_powerup_effect(powerup_hit.type)
+            powerup_hit.kill()
+        
+        # Remove powerups that have gone off screen
+        for powerup in self.powerups.copy():
+            if powerup.rect.right < 0:
+                self.powerups.remove(powerup)
+    
+    def reset_game(self):
+        """Reset the game to its initial state."""
+        self.stats.reset_stats()
+        self.settings.initialize_dynamic_settings()
+        self.stats.game_active = True
+        self.scoreboard.prep_score()
+        self.scoreboard.prep_hearts()
+        self.scoreboard.prep_powerup_counts()
+
+        # Hide the mouse cursor.
+        pygame.mouse.set_visible(False)
+        
+        # Get rid of any remaining aliens, bullets, powerups, and boss.
+        self.aliens.empty()
+        self.bullets.empty()
+        self.powerups.empty()
+        self.boss_bullets.empty()
+        self.boss_active = False
+        self.boss = None
+        self.last_boss_death_time = pygame.time.get_ticks()
+        
+        self.ship.center_ship()
+        self._create_fleet_1()
+        self._create_fleet_2()
+        self._create_fleet_3()
+
     def _check_play_button(self, mouse_pos):
         """Start a new game when the player clicks Play."""
         button_clicked = self.play_button.rect.collidepoint(mouse_pos)
         if button_clicked and not self.stats.game_active:
-            self.stats.reset_stats()
-            self.settings.initialize_dynamic_settings()
-            self.stats.game_active = True
-            self.scoreboard.prep_score()
-            self.scoreboard.prep_hearts()
-
-            # Hide the mouse cursor.
-            pygame.mouse.set_visible(False)
-            
-            # Get rid of any remaining aliens, bullets, and boss.
-            self.aliens.empty()
-            self.bullets.empty()
-            self.boss_bullets.empty()
-            self.boss_active = False
-            self.boss = None
-            self.last_boss_death_time = pygame.time.get_ticks()
-            
-            self.ship.center_ship()
-            self._create_fleet_1()
-            self._create_fleet_2()
-            self._create_fleet_3()
+            self.reset_game()
 
     def _fire_bullet(self):
         """Create a new bullet and add it to the bullets group."""
-        new_bullet = Bullet(self)
-        self.bullets.add(new_bullet)
+        # Check if the ship is AI-controlled
+        if hasattr(self.ship, 'ai_controlled') and self.ship.ai_controlled:
+            # Check for laser projectile (green powerup) when targeting boss
+            if (self.stats.green_powerups > 0 and 
+                hasattr(self.ship, 'ai_state') and 
+                self.ship.ai_state == 'target_boss'):
+                # Create a laser bullet
+                new_bullet = LaserBullet(self.ship.rect.right, self.ship.rect.centery)
+                self.bullets.add(new_bullet)
+                # Decrement green powerup count
+                self.stats.green_powerups -= 1
+                self.scoreboard.prep_powerup_counts()
+            
+            # Check for spread projectile (orange powerup) when targeting boss
+            elif (self.stats.orange_powerups > 0 and 
+                  hasattr(self.ship, 'ai_state') and 
+                  self.ship.ai_state == 'target_boss'):
+                # Create spread bullets
+                spread_bullets = create_spread_shot(
+                    self.ship.rect.right, 
+                    self.ship.rect.centery, 
+                    num_bullets=3, 
+                    spread_angle=20, 
+                    speed=10
+                )
+                # Add all spread bullets to the bullets group
+                for bullet in spread_bullets:
+                    self.bullets.add(bullet)
+                # Decrement orange powerup count
+                self.stats.orange_powerups -= 1
+                self.scoreboard.prep_powerup_counts()
+            
+            # Check for invulnerability powerup (yellow powerup) when not already invulnerable
+            elif (self.stats.yellow_powerups > 0 and 
+                  hasattr(self.ship, 'ai_state') and 
+                  not self.ship.invulnerable):
+                # Activate invulnerability powerup
+                self.stats.yellow_powerups -= 1
+                self.ship.activate_invulnerability(5000)  # 5 seconds in milliseconds
+                self.scoreboard.prep_powerup_counts()
+                
+                # Still fire a normal bullet
+                new_bullet = Bullet(self)
+                self.bullets.add(new_bullet)
+            
+            # Default to normal bullet
+            else:
+                new_bullet = Bullet(self)
+                self.bullets.add(new_bullet)
+        else:
+            # For manual control, always use normal bullet
+            new_bullet = Bullet(self)
+            self.bullets.add(new_bullet)
 
     def _create_fleet_1(self):
         """Create the fleet of aliens."""
@@ -223,9 +355,16 @@ class SpaceImpact:
             # Check for bullet collisions with boss
             collisions = pygame.sprite.spritecollide(self.boss, self.bullets, True)
             if collisions:
-                for _ in collisions:
-                    # If boss is hit, reduce health
-                    if self.boss.hit():
+                for bullet in collisions:
+                    # Determine damage based on bullet type
+                    damage = 1  # Default damage
+                    if isinstance(bullet, LaserBullet):
+                        damage = 50
+                    elif isinstance(bullet, SpreadBullet):
+                        damage = 25
+                    
+                    # If boss is hit, reduce health by the appropriate damage
+                    if self.boss.hit(damage):
                         # Boss is destroyed
                         self.boss_active = False
                         # Record time of boss death to start 2-minute respawn countdown
@@ -243,9 +382,19 @@ class SpaceImpact:
         """Update boss bullets position and check for collisions."""
         self.boss_bullets.update()
         
+        # Check for collisions between player bullets and boss bullets
+        collisions = pygame.sprite.groupcollide(self.bullets, self.boss_bullets, True, True)
+        
         # Check for collisions with the ship
-        if pygame.sprite.spritecollideany(self.ship, self.boss_bullets):
-            self._ship_hit()
+        if hasattr(self.ship, 'invulnerable') and self.ship.invulnerable:
+            # If ship is invulnerable, destroy boss bullets that collide with it
+            collided_bullet = pygame.sprite.spritecollideany(self.ship, self.boss_bullets)
+            if collided_bullet:
+                collided_bullet.kill()
+        else:
+            # Normal collision processing - ship takes damage
+            if pygame.sprite.spritecollideany(self.ship, self.boss_bullets):
+                self._ship_hit()
             
         # Remove bullets that have gone off screen
         for bullet in self.boss_bullets.copy():
@@ -262,15 +411,21 @@ class SpaceImpact:
     def _ship_hit(self):
         """Respond to the ship being hit by an alien or boss bullet."""
 
+        # If ship is invulnerable, don't take damage
+        # Note: Collision handling for invulnerability is now done in the respective update methods
+        if hasattr(self.ship, 'invulnerable') and self.ship.invulnerable:
+            return
+
         if self.stats.ships_left > 0:
             # Lower ships left.
             self.stats.ships_left -= 1
             self.scoreboard.prep_hearts()
 
-            # Get rid of any remaining aliens and bullets.
+            # Get rid of any remaining aliens, bullets, and powerups.
             self.aliens.empty()
             self.bullets.empty()
             self.boss_bullets.empty()
+            self.powerups.empty()
 
             # Reset boss state if active
             if self.boss_active:
@@ -280,6 +435,13 @@ class SpaceImpact:
             
             # Create a new fleet and center the ship.
             self.ship.center_ship()
+            if self.boss_active:
+                self.ship.ai_state = 'target_boss'
+                self.ship.boss_engaged = True
+            else:
+                self.ship.ai_state = 'target_alien'
+                self.ship.boss_engaged = False
+            self.ship.target_counter = 0
             self._create_fleet_1()
             self._create_fleet_2()
             self._create_fleet_3()
@@ -288,6 +450,9 @@ class SpaceImpact:
             # Pause.
             sleep(1)
         else:
+            print("Game over - Resetting game")
+            self.reset_game()
+            # Set game to inactive to show play button
             self.stats.game_active = False
             pygame.mouse.set_visible(True)
 
@@ -295,8 +460,19 @@ class SpaceImpact:
         """Update the position of all liens in the fleet."""
         self.aliens.update()
         # Look for alien-ship collision.
-        if pygame.sprite.spritecollideany(self.ship, self.aliens):
-            self._ship_hit()
+        if hasattr(self.ship, 'invulnerable') and self.ship.invulnerable:
+            # If ship is invulnerable, destroy aliens that collide with it
+            collided_alien = pygame.sprite.spritecollideany(self.ship, self.aliens)
+            if collided_alien:
+                collided_alien.kill()
+                # Award points for destroying the alien
+                self.stats.score += self.settings.alien_points
+                self.scoreboard.prep_score()
+                self.scoreboard.check_high_score()
+        else:
+            # Normal collision processing - ship takes damage
+            if pygame.sprite.spritecollideany(self.ship, self.aliens):
+                self._ship_hit()
 
     def _update_bullets(self):
         # Check for any bullets that have hit aliens.
@@ -335,6 +511,10 @@ class SpaceImpact:
         # Draw bullets
         for bullet in self.bullets.sprites():
             bullet.draw_bullet()
+            
+        # Draw powerups
+        for powerup in self.powerups.sprites():
+            powerup.draw()
             
         # Draw boss bullets if boss is active
         if self.boss_active:

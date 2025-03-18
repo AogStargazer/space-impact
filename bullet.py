@@ -21,7 +21,7 @@ class Bullet(Sprite):
     def update(self):
         """Move the bullet to the right."""
         # Update the decimal position of the bullet.
-        self.x += self.settings.bullet_speed
+        self.x += self.settings.bullet_speed * 3
         # Update the rect position.
         self.rect.x = self.x
 

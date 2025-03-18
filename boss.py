@@ -36,7 +36,7 @@ class Boss(pygame.sprite.Sprite):
         self.phase = 'approach'
         
         # Boss health
-        self.health = 20
+        self.health = 200
         
         # Attack cooldown
         self.attack_timer = 0
@@ -49,38 +49,59 @@ class Boss(pygame.sprite.Sprite):
 
     def load_images(self):
         """Load the boss images and scale them larger."""
-        # Scale factor for the boss (making it 5x larger)
-        scale_factor = 5.0
+        # Scale factor for the boss (making it 20x larger)
+        scale_factor = 20.0
         
-        # Try to load boss-specific images if they exist
+        # Define a list of enemy sprite paths
+        enemy_sprite_sets = [
+            ('images/alien_1_1.png', 'images/alien_1_2.png'),
+            ('images/alien_2_1.png', 'images/alien_2_2.png'),
+            ('images/alien_3_1.png', 'images/alien_3_2.png')
+        ]
+        
+        # Randomly select one set of enemy sprites
+        selected_sprites = choice(enemy_sprite_sets)
+        
+        # Try to load the selected sprites
         try:
-            boss_images_path = os.path.join('images', 'boss')
-            if os.path.exists(boss_images_path):
-                for filename in sorted(os.listdir(boss_images_path)):
-                    if filename.endswith('.png') or filename.endswith('.bmp'):
-                        image = pygame.image.load(os.path.join(boss_images_path, filename))
-                        # Scale the image to be larger
-                        width = int(image.get_width() * scale_factor)
-                        height = int(image.get_height() * scale_factor)
-                        scaled_image = pygame.transform.scale(image, (width, height))
-                        self.frames.append(scaled_image)
+            for sprite_path in selected_sprites:
+                if os.path.exists(sprite_path):
+                    image = pygame.image.load(sprite_path)
+                    # Scale the image to be larger
+                    width = int(image.get_width() * scale_factor)
+                    height = int(image.get_height() * scale_factor)
+                    scaled_image = pygame.transform.scale(image, (width, height))
+                    self.frames.append(scaled_image)
         except Exception:
-            # Fallback to alien images if boss images aren't available
-            alien_images_path = os.path.join('images', 'alien')
-            if os.path.exists(alien_images_path):
-                for filename in sorted(os.listdir(alien_images_path)):
-                    if filename.endswith('.png') or filename.endswith('.bmp'):
-                        image = pygame.image.load(os.path.join(alien_images_path, filename))
-                        # Scale the image to be larger
-                        width = int(image.get_width() * scale_factor)
-                        height = int(image.get_height() * scale_factor)
-                        scaled_image = pygame.transform.scale(image, (width, height))
-                        self.frames.append(scaled_image)
-            else:
-                # Create a default image if no images are found
-                default_image = pygame.Surface((60, 60))
-                default_image.fill((255, 0, 0))  # Red color for the boss
-                self.frames.append(default_image)
+            # Fallback to boss-specific images if they exist
+            try:
+                boss_images_path = os.path.join('images', 'boss')
+                if os.path.exists(boss_images_path):
+                    for filename in sorted(os.listdir(boss_images_path)):
+                        if filename.endswith('.png') or filename.endswith('.bmp'):
+                            image = pygame.image.load(os.path.join(boss_images_path, filename))
+                            # Scale the image to be larger
+                            width = int(image.get_width() * scale_factor)
+                            height = int(image.get_height() * scale_factor)
+                            scaled_image = pygame.transform.scale(image, (width, height))
+                            self.frames.append(scaled_image)
+            except Exception:
+                # Fallback to alien images if boss images aren't available
+                alien_images_path = os.path.join('images', 'alien')
+                if os.path.exists(alien_images_path):
+                    for filename in sorted(os.listdir(alien_images_path)):
+                        if filename.endswith('.png') or filename.endswith('.bmp'):
+                            image = pygame.image.load(os.path.join(alien_images_path, filename))
+                            # Scale the image to be larger
+                            width = int(image.get_width() * scale_factor)
+                            height = int(image.get_height() * scale_factor)
+                            scaled_image = pygame.transform.scale(image, (width, height))
+                            self.frames.append(scaled_image)
+                else:
+                    # Create a default image if no images are found
+                    default_image = pygame.Surface((60, 60))
+                    default_image.fill((255, 0, 0))  # Red color for the boss
+                    self.frames.append(default_image)
         
         # Ensure we have at least one frame
         if not self.frames:
@@ -134,9 +155,9 @@ class Boss(pygame.sprite.Sprite):
         if hasattr(self.game, '_fire_boss_bullet'):
             self.game._fire_boss_bullet(self)
 
-    def hit(self):
+    def hit(self, damage=1):
         """Process a hit on the boss."""
-        self.health -= 1
+        self.health -= damage
         # Return True if the boss is destroyed
         return self.health <= 0
 

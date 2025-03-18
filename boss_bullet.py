@@ -1,11 +1,12 @@
 import pygame
 from settings import Settings
 
-class BossBullet:
+class BossBullet(pygame.sprite.Sprite):
     """A class to manage bullets fired from the boss"""
     
     def __init__(self, ai_game, boss):
         """Create a bullet object at the boss's position"""
+        super().__init__()
         self.screen = ai_game.screen
         self.settings = ai_game.settings
         self.color = (255, 0, 0)  # Red color for boss bullets

@@ -14,3 +14,6 @@ class GameStats:
         """Initialize statistics that can change during the game"""
         self.ships_left = self.settings.ships_limit
         self.score = 0
+        self.green_powerups = 0
+        self.orange_powerups = 0
+        self.yellow_powerups = 0
