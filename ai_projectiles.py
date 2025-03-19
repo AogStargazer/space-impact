@@ -18,16 +18,16 @@ class LaserBullet(pygame.sprite.Sprite):
         """
         super().__init__()
         
-        # Create a thinner, brighter laser beam
-        self.image = pygame.Surface((20, 3), pygame.SRCALPHA)
-        pygame.draw.rect(self.image, (255, 50, 50), (0, 0, 20, 3))  # Bright red laser
+        # Create a longer, brighter laser beam
+        self.image = pygame.Surface((80, 3), pygame.SRCALPHA)
+        pygame.draw.rect(self.image, (255, 50, 50), (0, 0, 80, 3))  # Bright red laser
         
         # Add a glow effect
-        glow_surf = pygame.Surface((24, 7), pygame.SRCALPHA)
-        pygame.draw.rect(glow_surf, (255, 100, 100, 128), (0, 0, 24, 7), border_radius=2)
+        glow_surf = pygame.Surface((84, 7), pygame.SRCALPHA)
+        pygame.draw.rect(glow_surf, (255, 100, 100, 128), (0, 0, 84, 7), border_radius=2)
         
         # Combine the base and glow
-        final_surf = pygame.Surface((24, 7), pygame.SRCALPHA)
+        final_surf = pygame.Surface((84, 7), pygame.SRCALPHA)
         final_surf.blit(glow_surf, (0, 0))
         final_surf.blit(self.image, (2, 2))
         self.image = final_surf
@@ -46,6 +46,11 @@ class LaserBullet(pygame.sprite.Sprite):
         # Remove if it goes off-screen
         if self.rect.left > pygame.display.get_surface().get_width():
             self.kill()
+    
+    def draw_bullet(self):
+        """Draw the bullet to the screen."""
+        screen = pygame.display.get_surface()
+        screen.blit(self.image, self.rect)
 
 
 class SpreadBullet(pygame.sprite.Sprite):
@@ -66,9 +71,16 @@ class SpreadBullet(pygame.sprite.Sprite):
         """
         super().__init__()
         
-        # Create a small, distinctive bullet
-        self.image = pygame.Surface((8, 8), pygame.SRCALPHA)
-        pygame.draw.circle(self.image, (255, 200, 50), (4, 4), 4)  # Yellow-orange bullet
+        # Create a triangular bullet to visually indicate spread pattern
+        self.image = pygame.Surface((10, 10), pygame.SRCALPHA)
+        
+        # Draw a triangle pointing in the direction of travel
+        triangle_points = [(0, 5), (10, 0), (10, 10)]
+        pygame.draw.polygon(self.image, (255, 200, 50), triangle_points)  # Yellow-orange bullet
+        
+        # Rotate the image based on the angle
+        self.original_image = self.image.copy()
+        self.image = pygame.transform.rotate(self.original_image, -math.degrees(angle))
         
         self.rect = self.image.get_rect()
         self.rect.center = (x, y)
@@ -83,9 +95,8 @@ class SpreadBullet(pygame.sprite.Sprite):
         self.x += self.speed * math.cos(self.angle)
         self.y += self.speed * math.sin(self.angle)
         
-        # Update the rect position
-        self.rect.x = self.x
-        self.rect.y = self.y
+        # Update the rect position, ensuring it's centered on the actual position
+        self.rect.center = (self.x, self.y)
         
         # Remove if it goes off-screen
         screen = pygame.display.get_surface()
@@ -94,11 +105,17 @@ class SpreadBullet(pygame.sprite.Sprite):
             self.rect.top > screen.get_height() or 
             self.rect.bottom < 0):
             self.kill()
+    
+    def draw_bullet(self):
+        """Draw the bullet to the screen."""
+        screen = pygame.display.get_surface()
+        screen.blit(self.image, self.rect)
 
 
-def create_spread_shot(x, y, num_bullets=3, spread_angle=20, speed=10):
+def create_spread_shot(x, y, num_bullets=3, spread_angle=20, speed=10, angle_offset=0):
     """
     Create multiple SpreadBullet instances with varied angles for a spread shot effect.
+    The bullets are arranged in a triangular formation for visual clarity.
     
     Args:
         x (int): Starting x-coordinate
@@ -106,6 +123,7 @@ def create_spread_shot(x, y, num_bullets=3, spread_angle=20, speed=10):
         num_bullets (int): Number of bullets in the spread
         spread_angle (float): Total angle of spread in degrees
         speed (int): Speed of the bullets
+        angle_offset (float): Additional angle offset to apply to all bullets (default: 0)
         
     Returns:
         list: List of SpreadBullet instances
@@ -119,7 +137,7 @@ def create_spread_shot(x, y, num_bullets=3, spread_angle=20, speed=10):
         angle_step = 0
     
     # Calculate the starting angle (to center the spread)
-    start_angle = -spread_angle / 2
+    start_angle = -spread_angle / 2 + angle_offset
     
     # Create bullets at different angles
     for i in range(num_bullets):

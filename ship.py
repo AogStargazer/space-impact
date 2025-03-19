@@ -1,6 +1,6 @@
 import pygame
 from settings import Settings
-from strategy import AggressiveStrategy
+from strategy import EnhancedAIStrategy
 
 
 class Ship:
@@ -11,9 +11,11 @@ class Ship:
         self.screen = si_game.screen
         self.screen_rect = si_game.screen.get_rect()
         self.settings = Settings()
+        self.si_game = si_game  # Store reference to the game
         
         # Initialize the AI strategy
-        self.strategy = AggressiveStrategy()
+        self.strategy = EnhancedAIStrategy()
+        self.ai_controlled = True
 
         # Load the ship image and get its react.
         self.image = pygame.image.load("images/ship_1.png")
@@ -34,25 +36,38 @@ class Ship:
         self.moving_down = False
 
         self.ship_speed = self.settings.screen_width*0.005
-        # AI movement speed - faster than normal ship speed
-        self.ai_ship_speed = self.ship_speed * 6.0
+        # AI movement speed - enhanced for better responsiveness
+        self.ai_ship_speed = self.ship_speed * 8.0
         
-        # AI state tracking
-        self.ai_state = 'patrol'  # Possible states: 'dodge', 'target_boss', 'target_alien', 'target_powerup', 'patrol'
+        # Enhanced AI state tracking
+        self.ai_state = 'patrol'  # Possible states: 'dodge', 'engage_boss', 'engage_enemy', 'collect_powerup', 'patrol'
         self.current_target = None  # Store the current target to prevent frequent switching
-        self.target_persistence = 10  # Frames to keep targeting the same entity
+        self.target_persistence = 15  # Frames to keep targeting the same entity
         self.target_counter = 0  # Counter for target persistence
         self.boss_engaged = False  # Track if we've engaged with a boss to maintain persistence
+        
+        # Powerup tracking
+        self.active_powerup = None  # Current active powerup type
+        self.powerup_stacks = 0     # Number of powerup uses remaining
+        self.powerup_damage = {
+            'laser': 50,
+            'spreadgun': 25,
+            'default': 10  # Default bullet damage
+        }
         
         # Invulnerability tracking
         self.invulnerable = False
         self.invulnerability_start_time = 0
         self.invulnerability_duration = 0
         self.flash_interval = 100  # milliseconds between flashes
+        
+        # Projectile properties
+        self.projectile_speed = self.settings.bullet_speed
+        self.projectile_damage = 10  # Default damage
 
     def update_ai(self, aliens, boss_bullets=None, boss=None, powerups=None):
         """AI-controlled ship movement using the strategy pattern to determine targeting and movement.
-        Uses a state-based approach with smooth movement to prevent erratic behavior.
+        Uses an enhanced state-based approach with predictive targeting and smooth movement.
         Dynamically detects window resolution and adjusts boundaries accordingly."""
         # Check if invulnerability has expired
         if self.invulnerable:
@@ -63,28 +78,56 @@ class Ship:
         # Get current window dimensions dynamically
         width, height = self.screen.get_size()
         
-        # Define movement constraints and parameters
+        # Define enhanced movement constraints and parameters
         max_speed = self.ai_ship_speed
-        max_dodge_speed = max_speed * 1.5
-        patrol_speed = max_speed * 0.5
-        dead_zone = 20  # Pixels threshold to prevent jitter
+        max_dodge_speed = max_speed * 2.0  # Increased for better evasion
+        patrol_speed = max_speed * 0.6     # Slightly faster patrol
+        dead_zone = 15  # Reduced pixels threshold for more precise movement
         safe_zone_margin = self.rect.height / 2  # Safe margin for targeting
         
         # Initialize vertical velocity for this frame
         vertical_velocity = 0
         
-        # STEP 1: Use strategy to determine action and target
+        # STEP 1: Use strategy to determine action and target with state machine
         action, target = self.strategy.select_target(self, aliens, boss, powerups, boss_bullets)
         
+        # Map strategy actions to our enhanced state machine
+        state_mapping = {
+            'dodge': 'dodge',
+            'target_boss': 'engage_boss',
+            'target_alien': 'engage_enemy',
+            'target_powerup': 'collect_powerup',
+            'patrol': 'patrol'
+        }
+        
+        # Convert action to our state machine terminology
+        new_state = state_mapping.get(action, 'patrol')
+        
+        # If boss exists, prioritize boss engagement unless we need to dodge
+        if boss is not None and new_state != 'dodge':
+            new_state = 'engage_boss'
+            target = boss
+
+        
         # Update AI state based on strategy decision
-        self.ai_state = action
+        self.ai_state = new_state
+        self.current_target = target
         
         # If targeting boss, mark as engaged
-        if action == 'target_boss':
+        if new_state == 'engage_boss':
             self.boss_engaged = True
+            
+            # Check if we have an active powerup to use against the boss
+            if self.active_powerup and self.powerup_stacks > 0:
+                # Trigger powerup usage in the game
+                if hasattr(self.si_game, 'activate_ship_powerup'):
+                    self.si_game.activate_ship_powerup(self.active_powerup)
+                    self.powerup_stacks -= 1
+                    if self.powerup_stacks <= 0:
+                        self.active_powerup = None
         
         # STEP 2: Calculate movement based on action and target
-        if action == 'dodge' and target:
+        if self.ai_state == 'dodge' and target:
             # Calculate distance from bullet center to determine dodge direction
             bullet_center_y = target.rect.centery
             # Negative difference means bullet is above ship, positive means below
@@ -99,7 +142,7 @@ class Ship:
                     diff = 50   # Force downward dodge
             
             # Calculate smooth dodge velocity (opposite to the bullet direction)
-            dodge_factor = 0.3  # Higher value for more responsive dodging
+            dodge_factor = 0.5  # Increased for more responsive dodging
             vertical_velocity = -diff * dodge_factor
             
             # Clamp velocity to max dodge speed
@@ -108,29 +151,33 @@ class Ship:
             elif vertical_velocity < -max_dodge_speed:
                 vertical_velocity = -max_dodge_speed
                 
-        elif action == 'target_boss' and target:
-            # Target with safe zone margin to allow for better targeting
-            target_y = target.rect.centery
+        elif self.ai_state == 'engage_boss' and target:
+            # ENHANCED PREDICTIVE AIMING SYSTEM using strategy's prediction engine
+            # Get projectile speed from settings
+            projectile_speed = self.settings.bullet_speed
             
-            # Calculate difference between ship and target
-            diff = target_y - self.rect.centery
+            # Use the strategy's prediction engine to calculate the future position
+            predicted_x, predicted_y = self.strategy.predict_target_position(target, projectile_speed, self)
+            
+            # Calculate difference between ship and predicted boss position
+            diff = predicted_y - self.rect.centery
             
             # Use a more aggressive targeting: reduced dead zone and higher damping
-            boss_dead_zone = 10  # Reduced for more precise targeting
+            boss_dead_zone = 5  # Further reduced for more precise targeting
             
             # Only move if outside the dead zone
             if abs(diff) > boss_dead_zone:
                 # Calculate smooth movement with increased damping factor for more aggressive movement
-                damping = 0.50  # Increased for faster alignment with boss
+                damping = 0.65  # Further increased for faster alignment with boss
                 vertical_velocity = diff * damping
                 
                 # Clamp velocity to higher max speed for boss targeting
-                if vertical_velocity > max_speed * 2.0:
-                    vertical_velocity = max_speed * 2.0
-                elif vertical_velocity < -max_speed * 2.0:
-                    vertical_velocity = -max_speed * 2.0
+                if vertical_velocity > max_speed * 2.5:
+                    vertical_velocity = max_speed * 2.5
+                elif vertical_velocity < -max_speed * 2.5:
+                    vertical_velocity = -max_speed * 2.5
                     
-        elif action == 'target_powerup' and target:
+        elif self.ai_state == 'collect_powerup' and target:
             # Target with safe zone margin to allow for better targeting
             target_y = target.rect.centery
             
@@ -138,12 +185,12 @@ class Ship:
             diff = target_y - self.rect.centery
             
             # Use a more aggressive targeting for powerups
-            powerup_dead_zone = 15  # Smaller dead zone for precise targeting
+            powerup_dead_zone = 10  # Smaller dead zone for precise targeting
             
             # Only move if outside the dead zone
             if abs(diff) > powerup_dead_zone:
                 # Calculate smooth movement with increased damping factor for more aggressive movement
-                damping = 0.40  # Higher damping for faster alignment with powerup
+                damping = 0.55  # Higher damping for faster alignment with powerup
                 vertical_velocity = diff * damping
                 
                 # Clamp velocity to higher max speed for powerup targeting
@@ -152,7 +199,7 @@ class Ship:
                 elif vertical_velocity < -max_speed * 1.5:
                     vertical_velocity = -max_speed * 1.5
                     
-        elif action == 'target_alien' and target:
+        elif self.ai_state == 'engage_enemy' and target:
             # Target with safe zone margin to allow for better targeting
             target_y = target.rect.centery
             
@@ -162,7 +209,7 @@ class Ship:
             # Only move if outside the dead zone
             if abs(diff) > dead_zone:
                 # Calculate smooth movement with damping factor
-                damping = 0.30  # For faster alignment
+                damping = 0.45  # Increased for faster alignment
                 vertical_velocity = diff * damping
                 
                 # Clamp velocity to max speed
@@ -171,7 +218,7 @@ class Ship:
                 elif vertical_velocity < -max_speed:
                     vertical_velocity = -max_speed
                     
-        elif action == 'patrol':
+        elif self.ai_state == 'patrol':
             # Move toward the center of the screen
             screen_middle = height * 0.5
             diff = screen_middle - self.rect.centery
@@ -179,7 +226,7 @@ class Ship:
             # Only move if outside the dead zone
             if abs(diff) > dead_zone:
                 # Calculate smooth movement with damping factor
-                damping = 0.10  # For slightly more responsive patrol
+                damping = 0.15  # Increased for slightly more responsive patrol
                 vertical_velocity = diff * damping
                 
                 # Clamp velocity to patrol speed (slower than targeting)
@@ -255,9 +302,22 @@ class Ship:
         # Do not reset AI state to maintain aggressive targeting after respawn
         # This allows the ship to continue targeting the boss after death
         
+        # Activate brief invulnerability after respawn
+        self.activate_invulnerability(3000)  # 3 seconds of invulnerability
+        
     def activate_invulnerability(self, duration):
         """Activate ship invulnerability for the specified duration (in milliseconds)."""
         self.invulnerable = True
         self.invulnerability_start_time = pygame.time.get_ticks()
         self.invulnerability_duration = duration
         print(f"Ship invulnerable for {duration/1000} seconds")
+        
+    def set_powerup(self, powerup_type, stacks=3):
+        """Set the active powerup and number of uses."""
+        self.active_powerup = powerup_type
+        self.powerup_stacks = stacks
+        print(f"Activated {powerup_type} powerup with {stacks} uses")
+        
+    def get_powerup_damage(self):
+        """Return the damage value for the current powerup."""
+        return self.powerup_damage.get(self.active_powerup, self.powerup_damage['default'])

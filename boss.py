@@ -21,6 +21,9 @@ class Boss(pygame.sprite.Sprite):
         self.image = self.frames[self.frame_index]
         self.rect = self.image.get_rect()
         
+        # Mark this sprite as the boss
+        self.is_boss = True
+        
         # Position the boss on the right side of the screen
         self.rect.right = self.settings.screen_width - 50
         self.rect.centery = self.settings.screen_height // 2
@@ -36,7 +39,7 @@ class Boss(pygame.sprite.Sprite):
         self.phase = 'approach'
         
         # Boss health
-        self.health = 200
+        self.health = 400
         
         # Attack cooldown
         self.attack_timer = 0
@@ -158,8 +161,16 @@ class Boss(pygame.sprite.Sprite):
     def hit(self, damage=1):
         """Process a hit on the boss."""
         self.health -= damage
-        # Return True if the boss is destroyed
-        return self.health <= 0
+        
+        # Check if the boss is destroyed
+        if self.health <= 0:
+            # Create explosion effect at boss's position
+            # Note: We don't create the explosion here because it's handled in the
+            # _update_boss method of the main game class to avoid circular imports
+            # and to ensure the explosion is added to the game's explosion group
+            return True
+            
+        return False
 
     def draw(self):
         """Draw the boss at its current location."""

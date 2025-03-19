@@ -2,6 +2,8 @@ import pygame
 from pygame.sprite import Sprite
 from settings import Settings
 import random
+from boss_bullet import BossBullet
+from explosion import Explosion
 
 
 class Alien(Sprite):
@@ -12,6 +14,7 @@ class Alien(Sprite):
         super().__init__()
         self.screen = space_impact.screen
         self.settings = settings
+        self.game = space_impact
 
         # Load the alien image and set it's rect attribute.
         self.index = 0
@@ -54,3 +57,16 @@ class Alien(Sprite):
 
         self.image = pygame.transform.scale(self.image, (80 * int(self.settings.screen_width * 0.0019),
                                             40 * int(self.settings.screen_width * 0.0019)))
+                                            
+        # Random chance to shoot a boss-like projectile
+        if random.random() < 0.01:  # 1% chance to shoot on each update
+            new_bullet = BossBullet(self.game, self)
+            self.game.boss_bullets.add(new_bullet)
+            
+    def explode(self):
+        """Create an explosion effect when the alien is destroyed."""
+        # Create explosion at the alien's center position
+        explosion = Explosion(self.rect.centerx, self.rect.centery)
+        # Add the explosion to the game's explosion group for rendering and updating
+        self.game.explosions.add(explosion)
+        # Note: This method can be called just before the alien is removed from its sprite group

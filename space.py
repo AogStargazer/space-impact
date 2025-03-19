@@ -42,7 +42,7 @@ class Star:
     
     def draw(self, screen):
         if self.visible:
-            pygame.draw.circle(screen, self.color, (int(self.x), int(self.y)), self.size)
+            pygame.draw.rect(screen, self.color, (int(self.x) - self.size, int(self.y) - self.size, self.size * 2, self.size * 2))
 
 class Starfield:
     def __init__(self, num_stars):

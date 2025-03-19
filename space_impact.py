@@ -21,6 +21,7 @@ from boss import Boss
 from boss_bullet import BossBullet
 from powerup import Powerup
 from ai_projectiles import LaserBullet, SpreadBullet, create_spread_shot
+from explosion import Explosion
 
 clock = pygame.time.Clock()
 
@@ -41,6 +42,7 @@ class SpaceImpact:
         self.bullets = pygame.sprite.Group()
         self.aliens = pygame.sprite.Group()
         self.powerups = pygame.sprite.Group()
+        self.explosions = pygame.sprite.Group()  # Group to manage explosion animations
         
         # Powerup spawn timer
         self.last_powerup_spawn_time = pygame.time.get_ticks()
@@ -109,6 +111,7 @@ class SpaceImpact:
                 self._update_aliens()
                 self._update_bullets()
                 self._update_powerups()
+                self.explosions.update()  # Update explosion animations
                 
                 # Update boss if active
                 if self.boss_active and self.boss:
@@ -231,10 +234,11 @@ class SpaceImpact:
         # Hide the mouse cursor.
         pygame.mouse.set_visible(False)
         
-        # Get rid of any remaining aliens, bullets, powerups, and boss.
+        # Get rid of any remaining aliens, bullets, powerups, explosions, and boss.
         self.aliens.empty()
         self.bullets.empty()
         self.powerups.empty()
+        self.explosions.empty()
         self.boss_bullets.empty()
         self.boss_active = False
         self.boss = None
@@ -255,41 +259,74 @@ class SpaceImpact:
         """Create a new bullet and add it to the bullets group."""
         # Check if the ship is AI-controlled
         if hasattr(self.ship, 'ai_controlled') and self.ship.ai_controlled:
-            # Check for laser projectile (green powerup) when targeting boss
+            # Using offensive powerups against the boss if available.
+            # Check for laser projectile (green powerup) when engaging boss
             if (self.stats.green_powerups > 0 and 
                 hasattr(self.ship, 'ai_state') and 
-                self.ship.ai_state == 'target_boss'):
+                (self.ship.ai_state == 'engage_boss' or self.ship.ai_state == 'target_boss')):
                 # Create a laser bullet
                 new_bullet = LaserBullet(self.ship.rect.right, self.ship.rect.centery)
+                new_bullet.predicted_shot = True
                 self.bullets.add(new_bullet)
                 # Decrement green powerup count
                 self.stats.green_powerups -= 1
                 self.scoreboard.prep_powerup_counts()
+                print("AI using laser against boss with predictive targeting!")
             
-            # Check for spread projectile (orange powerup) when targeting boss
+            # Using offensive powerups against the boss if available.
+            # Check for spread projectile (orange powerup) when engaging boss
             elif (self.stats.orange_powerups > 0 and 
                   hasattr(self.ship, 'ai_state') and 
-                  self.ship.ai_state == 'target_boss'):
-                # Create spread bullets
-                spread_bullets = create_spread_shot(
-                    self.ship.rect.right, 
-                    self.ship.rect.centery, 
-                    num_bullets=3, 
-                    spread_angle=20, 
-                    speed=10
-                )
-                # Add all spread bullets to the bullets group
+                  (self.ship.ai_state == 'engage_boss' or self.ship.ai_state == 'target_boss')):
+                # Create spread bullets with improved prediction
+                if self.boss and hasattr(self.ship, 'strategy') and hasattr(self.ship.strategy, 'predict_target_position'):
+                    # Use prediction to aim at boss's future position
+                    predicted_x, predicted_y = self.ship.strategy.predict_target_position(
+                        self.boss, 
+                        self.settings.bullet_speed, 
+                        self.ship
+                    )
+                    # Calculate angle adjustment based on prediction
+                    angle_adjustment = 0
+                    if predicted_y != self.ship.rect.centery:
+                        # Simple angle calculation based on predicted position
+                        dy = predicted_y - self.ship.rect.centery
+                        angle_adjustment = min(max(dy / 100, -10), 10)  # Limit adjustment to ±10 degrees
+                    
+                    spread_bullets = create_spread_shot(
+                        self.ship.rect.right, 
+                        self.ship.rect.centery, 
+                        num_bullets=3, 
+                        spread_angle=20, 
+                        speed=10,
+                        angle_offset=angle_adjustment  # Apply prediction-based adjustment
+                    )
+                else:
+                    # Fallback to standard spread shot if prediction isn't available
+                    spread_bullets = create_spread_shot(
+                        self.ship.rect.right, 
+                        self.ship.rect.centery, 
+                        num_bullets=3, 
+                        spread_angle=20, 
+                        speed=10
+                    )
+                
+                # Add all spread bullets to the bullets group and mark as predicted shots
                 for bullet in spread_bullets:
+                    bullet.predicted_shot = True
                     self.bullets.add(bullet)
                 # Decrement orange powerup count
                 self.stats.orange_powerups -= 1
                 self.scoreboard.prep_powerup_counts()
+                print("AI using spread gun against boss with predictive targeting!")
             
             # Check for invulnerability powerup (yellow powerup) when not already invulnerable
             elif (self.stats.yellow_powerups > 0 and 
                   hasattr(self.ship, 'ai_state') and 
-                  not self.ship.invulnerable):
-                # Activate invulnerability powerup
+                  not self.ship.invulnerable and
+                  (pygame.sprite.spritecollideany(self.ship, self.boss_bullets) or 
+                   pygame.sprite.spritecollideany(self.ship, self.aliens))):
+                # Activate invulnerability powerup when in danger
                 self.stats.yellow_powerups -= 1
                 self.ship.activate_invulnerability(5000)  # 5 seconds in milliseconds
                 self.scoreboard.prep_powerup_counts()
@@ -310,21 +347,21 @@ class SpaceImpact:
     def _create_fleet_1(self):
         """Create the fleet of aliens."""
         # Make multiple aliens (increased spawn rate)
-        for _ in range(5):  # Increased from 3 to 5
+        for _ in range(10):  # Increased from 5 to 10
             alien = Alien(self, self.settings)
             self.aliens.add(alien)
 
     def _create_fleet_2(self):
         """Create the fleet of aliens."""
         # Make multiple aliens (increased spawn rate)
-        for _ in range(2):  # Increased from 1 to 2
+        for _ in range(4):  # Increased from 2 to 4
             alien_2 = Alien2(self, self.settings)
             self.aliens.add(alien_2)
 
     def _create_fleet_3(self):
         """Create the fleet of aliens."""
         # Make multiple aliens (increased spawn rate)
-        for _ in range(2):  # Increased from 1 to 2
+        for _ in range(4):  # Increased from 2 to 4
             alien_3 = Alien3(self, self.settings)
             self.aliens.add(alien_3)
             
@@ -356,15 +393,65 @@ class SpaceImpact:
             collisions = pygame.sprite.spritecollide(self.boss, self.bullets, True)
             if collisions:
                 for bullet in collisions:
+                    # Check if boss has already been destroyed by a previous bullet
+                    if not self.boss:
+                        break
+                        
                     # Determine damage based on bullet type
-                    damage = 1  # Default damage
+                    hit_multiplier = 1.0  # Base multiplier
+                    
+                    # Determine base damage and damage multiplier by bullet type
                     if isinstance(bullet, LaserBullet):
-                        damage = 50
+                        base_damage = 50
+                        damage_multiplier = 1.0  # Initialize with default value
+                        # Bonus damage for predicted laser shots
+                        if hasattr(bullet, 'predicted_shot') and bullet.predicted_shot:
+                            damage_multiplier = 1.5  # 50% bonus damage for predicted laser shots
                     elif isinstance(bullet, SpreadBullet):
-                        damage = 25
+                        base_damage = 25
+                        damage_multiplier = 1.0  # Initialize with default value
+                        # Bonus damage for predicted spread shots
+                        if hasattr(bullet, 'predicted_shot') and bullet.predicted_shot:
+                            damage_multiplier = 1.3  # 30% bonus damage for predicted spread shots
+                    else:
+                        # Default for normal bullets
+                        base_damage = 10
+                        damage_multiplier = 1.0
+                        
+                    # Calculate final damage with multiplier
+                    damage = int(base_damage * damage_multiplier)
+                    
+                    # Check if the ship has a strategy with prediction capability
+                    if hasattr(self.ship, 'strategy') and hasattr(self.ship.strategy, 'predict_target_position'):
+                        # Get current boss position
+                        boss_x, boss_y = self.boss.rect.centerx, self.boss.rect.centery
+                        
+                        # Get predicted position
+                        predicted_x, predicted_y = self.ship.strategy.predict_target_position(
+                            self.boss, 
+                            self.settings.bullet_speed, 
+                            self.ship
+                        )
+                        
+                        # Calculate accuracy of prediction (how close the bullet is to where the boss actually is)
+                        accuracy = 1.0 - min(abs(boss_y - predicted_y) / 100.0, 0.5)  # 0.5 to 1.0 range
+                        
+                        # Apply accuracy bonus to damage (up to 50% bonus for perfect prediction)
+                        hit_multiplier = 1.0 + (accuracy * 0.5)
+                        
+                        # Apply the additional hit multiplier to damage
+                        damage = int(damage * hit_multiplier)
+                        
+                        # Debug output for hit quality
+                        if hit_multiplier > 1.2:
+                            print(f"Critical hit! Damage: {damage}, Multiplier: {hit_multiplier:.2f}")
                     
                     # If boss is hit, reduce health by the appropriate damage
                     if self.boss.hit(damage):
+                        # Boss is destroyed - create a large explosion effect
+                        explosion = Explosion(self.boss.rect.centerx, self.boss.rect.centery, scale=5.0)
+                        self.explosions.add(explosion)
+                        
                         # Boss is destroyed
                         self.boss_active = False
                         # Record time of boss death to start 2-minute respawn countdown
@@ -377,6 +464,9 @@ class SpaceImpact:
                         
                         # Spawn more aliens when boss is defeated to maintain game balance
                         self._create_fleet_1()
+                        
+                        # Break out of the loop since boss is now destroyed
+                        break
                         
     def _update_boss_bullets(self):
         """Update boss bullets position and check for collisions."""
@@ -421,11 +511,16 @@ class SpaceImpact:
             self.stats.ships_left -= 1
             self.scoreboard.prep_hearts()
 
-            # Get rid of any remaining aliens, bullets, and powerups.
+            # Get rid of any remaining aliens, bullets, explosions, and powerups.
             self.aliens.empty()
             self.bullets.empty()
             self.boss_bullets.empty()
             self.powerups.empty()
+            self.explosions.empty()
+            
+            # Create explosion effect at ship's position
+            explosion = Explosion(self.ship.rect.centerx, self.ship.rect.centery, scale=3.0)
+            self.explosions.add(explosion)
 
             # Reset boss state if active
             if self.boss_active:
@@ -436,10 +531,10 @@ class SpaceImpact:
             # Create a new fleet and center the ship.
             self.ship.center_ship()
             if self.boss_active:
-                self.ship.ai_state = 'target_boss'
+                self.ship.ai_state = 'engage_boss'
                 self.ship.boss_engaged = True
             else:
-                self.ship.ai_state = 'target_alien'
+                self.ship.ai_state = 'engage_enemy'
                 self.ship.boss_engaged = False
             self.ship.target_counter = 0
             self._create_fleet_1()
@@ -464,6 +559,10 @@ class SpaceImpact:
             # If ship is invulnerable, destroy aliens that collide with it
             collided_alien = pygame.sprite.spritecollideany(self.ship, self.aliens)
             if collided_alien:
+                # Create explosion effect at alien's position
+                explosion = Explosion(collided_alien.rect.centerx, collided_alien.rect.centery)
+                self.explosions.add(explosion)
+                
                 collided_alien.kill()
                 # Award points for destroying the alien
                 self.stats.score += self.settings.alien_points
@@ -482,7 +581,15 @@ class SpaceImpact:
 
         if collisions:
             for aliens in collisions.values():
-                self.stats.score += self.settings.alien_points * len(aliens)
+                for alien in aliens:
+                    # Create explosion effect at alien's position
+                    # Using the Explosion class from explosion.py
+                    explosion = Explosion(alien.rect.centerx, alien.rect.centery)
+                    self.explosions.add(explosion)
+                    
+                    # Add points for destroying the alien
+                    self.stats.score += self.settings.alien_points
+                
             self.scoreboard.prep_score()
             self.scoreboard.check_high_score()
 
@@ -541,6 +648,9 @@ class SpaceImpact:
         # Regulate speed of the game by limiting FPS count.
         clock.tick(60)
 
+        # Draw explosions
+        self.explosions.draw(self.screen)
+        
         # Draw the play button if the game is inactive.
         if not self.stats.game_active:
             self.play_button.draw_button()

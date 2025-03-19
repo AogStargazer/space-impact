@@ -2,6 +2,7 @@ import pygame
 from pygame.sprite import Sprite
 from settings import Settings
 import random
+from boss_bullet import BossBullet
 
 
 class Alien2(Sprite):
@@ -12,6 +13,7 @@ class Alien2(Sprite):
         super().__init__()
         self.screen = space_impact.screen
         self.settings = settings
+        self.game = space_impact
 
         # Load the alien image and set it's rect attribute.
         self.index = 0
@@ -54,3 +56,8 @@ class Alien2(Sprite):
 
         self.image = pygame.transform.scale(self.image, (80 * int(self.settings.screen_width * 0.0019),
                                             40 * int(self.settings.screen_width * 0.0019)))
+                                            
+        # Random chance to shoot a boss-like projectile
+        if random.random() < 0.01:  # 1% chance per update
+            new_bullet = BossBullet(self.game, self)
+            self.game.boss_bullets.add(new_bullet)
